@@ -2,7 +2,11 @@ import cv2
 import numpy as np
 import face_recognition
 import os
+import pandas as pd
 from datetime import datetime, timedelta
+import time
+import platform
+import subprocess
 
 path = 'Students'
 images = []
@@ -19,7 +23,6 @@ for cl in myList:
     classNames.append(os.path.splitext(cl)[0])
 print(classNames)
 
-
 def findEncodings(images):
     encodeList = []
     for img in images:
@@ -29,7 +32,6 @@ def findEncodings(images):
             encodeList.append(encode)
     return encodeList
 
-
 def markAttendance(name):
     with open('Attendance.csv', 'r+') as f:
         myDataList = f.readlines()
@@ -38,14 +40,36 @@ def markAttendance(name):
         if name not in nameList:
             now = datetime.now()
             dtString = now.strftime('%H:%M:%S')
-            f.writelines(f'\n{name},{dtString}')
+            dateString = now.strftime('%d/%m/%Y')
+            dayString = now.strftime('%A')
+            f.writelines(f'\n{name},{dateString},{dayString},{dtString}')
+            generateExcel()
 
+def generateExcel():
+    df = pd.read_csv('Attendance.csv', names=['Name', 'Date', 'Day', 'Time'])
+    unique_names = df['Name'].nunique()
+    if unique_names >= 3:
+        df.to_excel('Attendance.xlsx', index=False)
+        print('Attendance.xlsx created.')
+        openExcelFile('Attendance.xlsx')
+        cv2.destroyAllWindows()
+        cap.release()
+        exit()
+
+def openExcelFile(filename):
+    if platform.system() == "Darwin":       # macOS
+        subprocess.call(('open', filename))
+    elif platform.system() == "Windows":    # Windows
+        os.startfile(filename)
+    else:                                   # linux variants
+        subprocess.call(('xdg-open', filename))
 
 encodeKnown = findEncodings(images)
 print('Encoding Complete')
 
 cap = cv2.VideoCapture(0)
 recognition_times = {}
+start_time = time.time()
 
 while True:
     success, img = cap.read()
@@ -59,7 +83,6 @@ while True:
     for encodeFace, faceLoc in zip(encodesInFrame, facesInFrame):
         matches = face_recognition.compare_faces(encodeKnown, encodeFace)
         faceDis = face_recognition.face_distance(encodeKnown, encodeFace)
-        # print(faceDis)
         matchIndex = np.argmin(faceDis)
 
         if matches[matchIndex] and faceDis[matchIndex] < 0.5:
@@ -82,11 +105,21 @@ while True:
             else:
                 recognition_times[name] = now
 
-            # Clean up recognition times to remove outdated entries
         current_time = datetime.now()
         recognition_times = {name: time for name, time in recognition_times.items() if
                              current_time - time < timedelta(seconds=3)}
 
-        cv2.imshow('Webcam', img)
-        cv2.waitKey(1)
+    cv2.imshow('Webcam', img)
+    cv2.waitKey(1)
+
+    if time.time() - start_time > 30:
+        print("Time's up! Ending live capture.")
+        break
+
+# Release the resources
+cv2.destroyAllWindows()
+cap.release()
+
+# Check and generate Excel file if not done already
+generateExcel()
 
